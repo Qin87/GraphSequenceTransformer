@@ -1,0 +1,83 @@
+# 96.8±2.1(0.5,-1,-1)
+telegram/:
+  nonlinear: 0
+#  hid_dim: 128
+  layer: 4
+#  lr: 0.01
+  l2: 0
+  normalize: 1
+  BN_model: 1    # sure
+  First_self_loop: 'add'
+  dropout: 0.0
+  NotImproved: 410
+
+
+
+#
+cora_ml/:     # 2,0.5,-1---2.0_0.5_2.0--2.0_0.5_0.5--2.0_-1.0_-1.0
+#  nonlinear: 1
+  hid_dim: 128   # better than 64
+  layer: 3   # 2(80), 3(75), 4(79.8), 5(79.6)
+  lr: 0.01    # 0.1(79), 0.01(80.7)
+  normalize: 0
+  BN_model: 0   # 0(29), 1(79)  # 1(79), 0(82.7)
+  First_self_loop : 'add'  # sure
+  dropout: 0.5   # 0.0(80.51), 0.5(80.76)
+
+#
+citeseer/:        # 0.5,2,0----1.0_0.0_0.5, ----1.0_2.0_0.5----2.0_2.0_0.0----2.0_0.0_0.5----2.0_0.0_0.0----2.0_2.0_0.5-----0.5_2.0_0.5---0.0_0.5_2.0--0.5_2.0_2.0
+#  nonlinear: 0    # 0(68.3), 1(67.6)
+  hid_dim: 128
+  layer: 3     # 1(65.3),2(64.8), 3(62.6), 4(64.0), 5(64.4)
+  lr: 0.01
+  normalize: 1    # 1(68.3), 0 much worse60.7,
+  BN_model: 0   # 0(68.3), 1(66.9)  # for high performance 0 is better.
+  First_self_loop : 'add'     # 'add'(64.75), 'remove'(58.2), 0(57.5)
+  dropout: 0.5   # 0(61.44), 0.5(64.75)
+
+
+# 79.1±0.8-----
+WikiCS/:
+  num_split: 20
+#  nonlinear: 1
+#  layer: 2
+#  lr: 0.01
+  normalize: 1
+  BN_model: 0  # 0(23), 1(73.5)
+  First_self_loop : 'add'  # add(79.1±0.8),0(77.3±0.8), remove(77.4)
+  dropout: 0.5  # 0.5(75.9), 0.0(73.9)
+
+#
+PubMed:
+  BN_model: 0
+  First_self_loop: 'add'
+#  lr: 0.005
+#  layer: 2
+  NotImproved: 810
+  has_scheduler: 1
+  patience: 80
+
+Coauthor-CS:
+  BN_model: 0
+#  layer: 2
+  First_self_loop: 'add'
+#  lr: 0.0005
+
+Coauthor-physics:
+  BN_model: 0
+#  layer: 1 # or 2
+  First_self_loop: 'add'
+  lr: 0.005
+
+
+Amazon-Photo:
+  BN_model: 0
+#  layer: 3 # or 1
+  First_self_loop: 'add'
+#  lr: 0.005
+
+Amazon-Computers:
+  BN_model: 1  # sure
+#  layer: 2 # or 1
+#  First_self_loop: 'add'
+  lr: 0.005
