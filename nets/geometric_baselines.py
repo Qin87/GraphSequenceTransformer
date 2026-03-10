@@ -2,7 +2,7 @@ import torch
 from torch_geometric.utils import remove_self_loops, softmax
 from torch_sparse import sum as sparsesum
 from torch_sparse import mul
-from nets.gcn import gcn_norm
+from torch_sparse import SparseTensor, fill_diag, mul
 
 
 def get_norm_adj(adj, norm):
@@ -23,6 +23,29 @@ def get_norm_adj(adj, norm):
     else:
         raise ValueError(f"{norm} normalization is not supported")
 
+
+def gcn_norm(edge_index, edge_weight=None, num_nodes=None, improved=False,
+             add_self_loops=0, dtype=None):
+
+    fill_value = 2. if improved else 1.
+
+    if isinstance(edge_index, SparseTensor):
+        adj_t = edge_index
+        if not adj_t.has_value():
+            adj_t = adj_t.fill_value(1., dtype=dtype)
+        if add_self_loops == 1:
+            adj_t = fill_diag(adj_t, fill_value)
+        deg = adj_t.sum(dim=1)
+        deg = deg.clamp(min=1e-12)
+        deg_inv_sqrt = deg.pow_(-0.5)
+        if torch.isnan(deg_inv_sqrt).any():
+            raise RuntimeError("NaN detected in deg_inv_sqrt — stopping training to prevent corrupt gradients.")
+        deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float('inf'), 0.)
+        adj_t = mul(adj_t, deg_inv_sqrt.view(-1, 1))
+        adj_t = mul(adj_t, deg_inv_sqrt.view(1, -1))
+        return adj_t
+
+
 def row_norm(adj):
     """
     Applies the row-wise normalization:
@@ -34,18 +57,12 @@ def row_norm(adj):
     row_sum = torch.clamp(row_sum, min=eps)  # preventing: if sum=0 or neg, got inf or nan.
     out = mul(adj, 1 / row_sum.view(-1, 1))
 
-    # inv_row_sum = torch.zeros_like(row_sum)
-    # mask = row_sum > eps
-    # inv_row_sum[mask] = 1.0 / row_sum[mask]
-    # out = mul(adj, inv_row_sum.view(-1, 1))   # worse
-
     # Debugging: sanity check
     values = out.storage.value()
     if torch.isnan(values).any():
         raise RuntimeError("NaN detected in out of row_norm — stopping training.")
     if torch.isinf(values).any():
         raise RuntimeError("Inf detected in out of row_norm — stopping training.")
-
 
     return out
 

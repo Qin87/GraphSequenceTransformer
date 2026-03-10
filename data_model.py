@@ -1,20 +1,17 @@
 import os
 from datetime import datetime
-
-import numpy as np
 import torch
-from torch_scatter import scatter_add
 
+from GraphSequenceTransformer import GraphSequenceTransformer
 from nets.gat import StandGATXBN
 from nets.gcn import StandGCNXBN
 from nets.models import create_MLP
 
-from edge_nets.edge_data import to_undirectedBen
-from gens import test_directed
 from nets import create_sage
-
 from data.data_utils import random_planetoid_splits, load_directedData
 import torch.nn.init as init
+import os.path as osp
+from torch import Tensor
 
 
 def init_model(model):
@@ -32,8 +29,11 @@ def init_model(model):
         if isinstance(module, torch.nn.BatchNorm1d):
             module.reset_parameters()  # Res
 
-def CreatModel(args, num_features, n_cls, data_x,device):
-    if args.net.lower() == 'mlp':
+
+def CreatModel(args, num_features, n_cls, data_x, device):
+    if args.net.lower() == 'gst':
+        model = GraphSequenceTransformer(nfeat=num_features, nclass=n_cls, args=args)
+    elif args.net.lower() == 'mlp':
         model = create_MLP(nfeat=num_features, nhid=args.hid_dim, nclass=n_cls, dropout=args.dropout, nlayer=args.layer)
     else:
         if args.net == 'GCN':
@@ -55,10 +55,7 @@ def get_name(args, IsDirectedGraph=1):
         dataset_to_print = dataset_to_print + 'Undire'
     else:
         dataset_to_print = dataset_to_print + 'Direct'
-    if args.net.startswith('Ri'):
-        net_to_print = args.net + str(args.W_degree) + '_'
-    else:
-        net_to_print = args.net
+    net_to_print = args.net
     if args.BN_model:
         net_to_print = 'LNorm_' + net_to_print
     else:
@@ -97,7 +94,7 @@ def log_file(net_to_print, dataset_to_print, args):
 
     return log_directory, log_file_name_with_timestamp
 
-import os.path as osp
+
 def load_dataset(args):
     if len(args.Dataset.split('/')) < 2:
         path = args.data_path
@@ -212,53 +209,6 @@ def load_dataset(args):
     return data_x, data_y, edges, edges_weight, dataset_num_features,data_train_maskOrigin, data_val_maskOrigin, data_test_maskOrigin, IsDirectedGraph
 
 
-def count_homophilic_nodes(edge_index, y):
-    num_nodes = y.size(0)
-    in_homophilic_count = 0
-    out_homophilic_count = 0
-    no_in_neighbors = 0
-    no_out_neighbors = 0
-
-    for node in range(num_nodes):
-        # Find the in-neighbors (nodes that point to the current node)
-        in_neighbors = (edge_index[1] == node).nonzero(as_tuple=True)[0]
-        in_neighbors = edge_index[0, in_neighbors]
-
-        # Find the out-neighbors (nodes that the current node points to)
-        out_neighbors = (edge_index[0] == node).nonzero(as_tuple=True)[0]
-        out_neighbors = edge_index[1, out_neighbors]
-
-
-        # Check in-neighbor homophily
-        if len(in_neighbors) > 0:
-            in_neighbor_labels = y[in_neighbors]
-            in_most_common_label = torch.mode(in_neighbor_labels).values.item()
-            if in_most_common_label == y[node]:
-                in_homophilic_count += 1
-        else:
-            no_in_neighbors += 1
-
-            # Check out-neighbor homophily
-        if len(out_neighbors) > 0:
-            out_neighbor_labels = y[out_neighbors]
-            out_most_common_label = torch.mode(out_neighbor_labels).values.item()
-            if out_most_common_label == y[node]:
-                out_homophilic_count += 1
-        else:
-            no_out_neighbors += 1
-
-    percent_no_in = (no_in_neighbors / num_nodes) * 100
-    percent_in_homo = (in_homophilic_count / num_nodes) * 100
-    percent_no_out = (no_out_neighbors / num_nodes) * 100
-    percent_out_homo = (out_homophilic_count / num_nodes) * 100
-
-    print('percent of no_in, in_homo, no_out, out_homo', end=':')
-    print(f"{percent_no_in:.1f} & {percent_in_homo:.1f} & {percent_no_out:.1f} & {percent_out_homo:.1f}")
-    # print(f"{percent_no_in:.1f}% & {percent_in_homo:.1f}% & {percent_no_out:.1f}% & {percent_out_homo:.1f}%")
-
-    return no_in_neighbors, in_homophilic_count, no_out_neighbors, out_homophilic_count
-
-
 def get_dataset(name, path, split_type='public'):
     import torch_geometric.transforms as T
     from torch_geometric.datasets import Coauthor
@@ -303,8 +253,61 @@ def get_dataset(name, path, split_type='public'):
 
     return dataset
 
-def remove_inner_class_edge(edges, y):
-    src, dst = edges
-    mask = y[src] != y[dst]
-    new_edges = edges[:, mask]
-    return new_edges
+
+def test_directed(edge_index):
+    set_edges = set()
+    bi_direct = 0
+    self_loop = 0
+    for i in range(edge_index.shape[1]):
+        if edge_index[1][i].item() == edge_index[0][i].item():
+            self_loop += 1
+        edge_inv = frozenset([edge_index[1][i].item(), edge_index[0][i].item()])
+
+        edge = frozenset([edge_index[0][i].item(), edge_index[1][i].item()])
+        if edge_inv in set_edges:
+            bi_direct += 1
+        set_edges.add(edge)
+    print("selfloop: {}, Num_bidirect_edges: {}, total_num_edges: {}".format(self_loop, bi_direct, edge_index.shape[1]))
+    if bi_direct * 2 == edge_index.shape[1] - self_loop:
+        return False
+    return True
+
+
+def to_undirectedBen(edge_index, edge_weight=None, num_nodes=None):
+    """Converts the graph given by :attr:`edge_index` to an undirected graph,
+    so that :math:`(j,i) \in \mathcal{E}` for every edge :math:`(i,j) \in
+    \mathcal{E}`.
+    Args:
+        edge_index (LongTensor): The edge indices.
+        edge_weight (FloatTensor, optional): The edge weights.
+        num_nodes (int, optional): The number of nodes, *i.e.*
+            :obj:`max_val + 1` of :attr:`edge_index`. (default: :obj:`None`)
+    :rtype: (:class:`LongTensor`, :class:`Tensor`)
+    """
+    row, col = edge_index
+    row, col = torch.cat([row, col], dim=0), torch.cat([col, row], dim=0)
+    edge_index = torch.stack([row, col], dim=0)
+
+    edges = [(edge_index[0][i].item(), edge_index[1][i].item()) for i in range(edge_index.shape[1])]
+
+    set_edges = set(edges)
+
+    unique_edges = list(set_edges)
+
+    num_list = [0] * len(edges)
+    history = []
+    count = 0
+    for i in range(len(edges)):
+        if edges[i] in history:
+            num_list[i] += 1
+            count += 1
+            # print("Duplicate: ", edges[i], num_list[i], count)
+        else:
+            history.append(edges[i])
+
+    edge_index0 = [i[0] for i in unique_edges]
+    edge_index1 = [i[1] for i in unique_edges]
+    edge_index = torch.tensor([edge_index0, edge_index1])
+
+    return edge_index
+

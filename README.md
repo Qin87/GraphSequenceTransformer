@@ -1,4 +1,4 @@
-# Message Passing Sequence Learning by Transformer
+# Graph Sequence Learning by Transformer
 
 ## Requirements
 

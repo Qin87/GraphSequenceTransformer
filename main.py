@@ -19,7 +19,6 @@ from utils import CrossEntropy, use_best_hyperparams
 from sklearn.metrics import balanced_accuracy_score, f1_score
 
 import warnings
-
 warnings.filterwarnings("ignore")
 
 
@@ -29,6 +28,7 @@ def signal_handler(sig, frame):
     print("Process interrupted!")
     log_results()
     sys.exit(0)
+
 
 def log_results():
     global start_time, end_time
